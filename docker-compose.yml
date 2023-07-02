@@ -1,0 +1,153 @@
+version: "3"
+volumes:
+  prometheus_data: {}
+
+services:
+
+  service-registry:
+    image: service-registry
+    ports:
+      - "8761:8761"
+    networks:
+      - test-network
+
+  config-server:
+    image: config-server
+    ports:
+      - "8088:8088"
+    networks:
+      - test-network
+
+  users-service:
+    image: users-service
+    environment:
+      - JAVA_OPTS=
+        -DEUREKA_SERVER=http://service-registry:8761/eureka
+        -DZIPKIN_SERVER=http://zipkin:9411/
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/users_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+    ports:
+      - "8082:8082"
+    #    links:
+    #      - zipkin
+    depends_on:
+      - service-registry
+      - config-server
+    #      - zipkin
+    networks:
+      - test-network
+
+
+  department-service:
+    image: department-service
+    environment:
+      - JAVA_OPTS=
+        -DEUREKA_SERVER=http://service-registry:8761/eureka
+        -DZIPKIN_SERVER=http://zipkin:9411/
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/department_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+    ports:
+      - "8081:8081"
+    #   links:
+    #     - zipkin
+    depends_on:
+      - config-server
+    #     - zipkin
+    networks:
+      - test-network
+
+
+  api-gateway:
+    image: api-gateway
+    environment:
+      - JAVA_OPTS=
+        -DEUREKA_SERVER=http://service-registry:8761/eureka
+        -DZIPKIN_SERVER=http://zipkin:9411/
+    #       -DUSERS_SERVICE=http://users-service:9700/
+    ports:
+      - "8060:8060"
+    #   links:
+    #     - zipkin
+    depends_on:
+      - service-registry
+      - config-server
+      - users-service
+      - department-service
+    #      - zipkin
+    networks:
+      - test-network
+
+  postgres:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: db_test
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  ### Postgres Adminer ###
+  postgres_admin:
+    image: dpage/pgadmin4
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin
+      PGADMIN_DEFAULT_PASSWORD: password
+    ports:
+      - "5050:80"
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./config/:/etc/prometheus
+      - ./data/prometheus:/data
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention=31d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    depends_on:
+      - users-service
+      - department-service
+    networks:
+      - test-network
+
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3001:3001"
+    depends_on:
+      - prometheus
+    networks:
+      - test-network
+
+
+  zipkin:
+    image: openzipkin/zipkin
+    environment:
+      - STORAGE_TYPE=mem
+    ports:
+      - "9411:9411"
+    depends_on:
+      - techefx-eureka-namng-service
+    networks:
+      - test-network
+
+
+
+networks:
+  test-network:
